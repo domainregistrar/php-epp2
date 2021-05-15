@@ -14,8 +14,9 @@ consolelog 'composer install'
 composer install \
   --no-interaction \
   --prefer-dist \
-  --no-suggest \
-  &> /dev/null
+  --no-suggest
+# \
+#  &> /dev/null
 
 consolelog 'install phpunit'
 # switch phpunit version depending on php version
@@ -44,7 +45,14 @@ if [[ ! -z "${RUN_COVERAGE}" ]]; then
 
   mkdir -p build/logs
   vendor/bin/phpunit --coverage-text --coverage-clover build/logs/clover.xml
-  vendor/bin/coveralls --quiet
+  if [ -f vendor/bin/php-coveralls ]; then
+    vendor/bin/php-coveralls --quiet
+  elif [ -f vendor/bin/coveralls ]; then
+    vendor/bin/coveralls --quiet
+  else
+    consolelog 'coveralls not found!'
+    exit 127
+  fi
 else
   consolelog 'run tests'
   vendor/bin/phpunit

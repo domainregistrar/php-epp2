@@ -14,6 +14,7 @@ namespace AfriCC\EPP\Extension\NicIT\Create;
 use AfriCC\EPP\ExtensionInterface as Extension;
 use AfriCC\EPP\Frame\Command\Create\Contact as ContactCreate;
 use AfriCC\EPP\Validator;
+use Exception;
 
 class Contact extends ContactCreate implements Extension
 {
@@ -29,11 +30,6 @@ class Contact extends ContactCreate implements Extension
         6, // Other subjects
         7, // Foreigners who match 2-6
     ];
-
-    public function getExtensionNamespace()
-    {
-        return $this->extension_xmlns;
-    }
 
     public function setConsentForPublishing($consent = false)
     {

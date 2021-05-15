@@ -6,7 +6,7 @@ ini_set('display_errors', true);
 
 chdir(__DIR__);
 
-require '../vendor/autoload.php';
+require '../../vendor/autoload.php';
 
 use AfriCC\EPP\Client as EPPClient;
 

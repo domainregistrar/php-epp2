@@ -12,7 +12,6 @@
 namespace AfriCC\EPP;
 
 use AfriCC\EPP\Frame\Command\Logout as LogoutCommand;
-use AfriCC\EPP\Frame\ResponseFactory;
 use Exception;
 
 /**
@@ -29,26 +28,15 @@ class Client extends AbstractClient implements ClientInterface
     protected $chunk_size;
     protected $verify_peer_name;
 
-    public function __construct(array $config)
+    public function __construct(array $config, ObjectSpec $objectSpec = null)
     {
-        parent::__construct($config);
+        parent::__construct($config, $objectSpec);
 
-        if (!empty($config['chunk_size'])) {
-            $this->chunk_size = (int) $config['chunk_size'];
-        } else {
-            $this->chunk_size = 1024;
-        }
+        $this->chunk_size = (int) $this->getConfigDefault($config, 'chunk_size', 1024);
+        $this->verify_peer_name = $this->getConfigDefaultBool($config, 'verify_peer_name', true);
 
-        if (isset($config['verify_peer_name'])) {
-            $this->verify_peer_name = (bool) $config['verify_peer_name'];
-        } else {
-            $this->verify_peer_name = true;
-        }
-
-        if ($this->port === false) {
-            // if not set, default port is 700
-            $this->port = 700;
-        }
+        // override 'port' default to false from AbstractClient::prepareConnectionOptions
+        $this->port = (int) $this->getConfigDefault($config, 'port', 700);
     }
 
     public function __destruct()
@@ -100,7 +88,7 @@ class Client extends AbstractClient implements ClientInterface
      *
      * @param resource|null $context SSL context or null in case of tcp connection
      *
-     * @throws Exception
+     * @throws Exception on socket errors
      */
     private function setupSocket($context = null)
     {
@@ -113,7 +101,10 @@ class Client extends AbstractClient implements ClientInterface
         $this->socket = @stream_socket_client($target, $errno, $errstr, $this->connect_timeout, STREAM_CLIENT_CONNECT, $context);
 
         if ($this->socket === false) {
-            throw new Exception($errstr, $errno);
+            // Socket initialization may fail, before system call connect()
+            // so the $errno is 0 and $errstr isn't populated .
+            // see https://www.php.net/manual/en/function.stream-socket-client.php#refsect1-function.stream-socket-client-errors
+            throw new Exception(sprintf('problem initializing socket: %s code: [%d]', $errstr, $errno), $errno);
         }
 
         // set stream time out
@@ -154,7 +145,7 @@ class Client extends AbstractClient implements ClientInterface
     {
         if ($this->active()) {
             // send logout frame
-            $this->request(new LogoutCommand());
+            $this->request(new LogoutCommand($this->objectSpec));
 
             return fclose($this->socket);
         }
@@ -162,12 +153,16 @@ class Client extends AbstractClient implements ClientInterface
         return false;
     }
 
-    /**
-     * Get an EPP frame from the server.
-     */
     public function getFrame()
     {
-        $header = $this->recv(4);
+        $hard_time_limit = time() + $this->timeout + 2;
+        do {
+            $header = $this->recv(4);
+        } while (empty($header) && (time() < $hard_time_limit));
+
+        if (time() >= $hard_time_limit) {
+            throw new Exception('Timeout while reading header from EPP Server');
+        }
 
         // Unpack first 4 bytes which is our length
         $unpacked = unpack('N', $header);
@@ -178,37 +173,16 @@ class Client extends AbstractClient implements ClientInterface
         } else {
             $length -= 4;
 
-            return ResponseFactory::build($this->recv($length));
+            return $this->recv($length);
         }
     }
 
-    /**
-     * sends a XML-based frame to the server
-     *
-     * @param FrameInterface $frame the frame to send to the server
-     */
     public function sendFrame(FrameInterface $frame)
     {
-        // some frames might require a client transaction identifier, so let us
-        // inject it before sending the frame
-        if ($frame instanceof TransactionAwareInterface) {
-            $frame->setClientTransactionId($this->generateClientTransactionId());
-        }
-
         $buffer = (string) $frame;
         $header = pack('N', mb_strlen($buffer, 'ASCII') + 4);
 
         return $this->send($header . $buffer);
-    }
-
-    /**
-     * a wrapper around sendFrame() and getFrame()
-     */
-    public function request(FrameInterface $frame)
-    {
-        $this->sendFrame($frame);
-
-        return $this->getFrame();
     }
 
     protected function log($message, $color = '0;32')
